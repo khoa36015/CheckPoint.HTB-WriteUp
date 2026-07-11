@@ -1,4 +1,4 @@
-# Checkpoint - Technical Penetration Testing Writeup
+# Checkpoint.HTB - Technical Penetration Testing Writeup
 
 Hello everyone, this writeup details the complete exploitation process of the Checkpoint machine (an Active Directory environment). To ensure an in-depth technical perspective, I will focus on analyzing access control structures (ACL/DACL), Kerberos protocol mechanics, payload execution flows via VS Code extensions, and specifically the privilege escalation technique exploiting Delegated Managed Service Accounts (DMSA) on Windows Server 2025.
 
